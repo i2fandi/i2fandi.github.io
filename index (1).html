@@ -1,0 +1,136 @@
+<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e1411"><link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><title>TradeLog</title>
+<style>
+:root{--bg:#0e1411;--cd:#17201b;--tx:#e9eee9;--mu:#8fa196;--ac:#e8b84a;--g:#4ade80;--r:#f87171;--bd:#2a382f}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,sans-serif;padding:env(safe-area-inset-top) 0 90px}
+main{padding:12px;max-width:720px;margin:auto}h3{margin:6px 0 10px;font-size:19px}
+.c{background:var(--cd);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:10px}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:8px}.g .c{margin:0}
+input,select,textarea,button{font:inherit;color:var(--tx);background:#0a0f0c;border:1px solid var(--bd);border-radius:8px;padding:9px;width:100%}
+button{background:var(--ac);color:#1a1405;border:0;font-weight:700;width:auto;cursor:pointer}button.s{background:var(--bd);color:var(--tx)}button.d{background:#7f1d1d;color:#fff}
+label{display:block;font-size:12px;color:var(--mu);margin:9px 0 3px}.m{color:var(--mu);font-size:12px}.p{color:var(--g)}.n{color:var(--r)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--cd);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
+nav a{flex:1;text-align:center;padding:12px 4px;color:var(--mu);font-size:12px;cursor:pointer}nav a.on{color:var(--ac);font-weight:700}
+.fab{position:fixed;right:14px;bottom:calc(66px + env(safe-area-inset-bottom));border-radius:99px;padding:12px 18px;box-shadow:0 4px 14px #000a}
+.ov{position:fixed;inset:0;background:#000c;overflow:auto;z-index:9;padding:10px}.ov>div{background:var(--bg);max-width:560px;margin:auto;border-radius:12px;padding:14px}
+.th{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.th img{width:64px;height:64px;object-fit:cover;border-radius:6px}
+.row{display:flex;justify-content:space-between;padding:3px 0}.btns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+#lb{position:fixed;inset:0;background:#000;z-index:20;overflow:auto;touch-action:pinch-zoom pan-x pan-y}#lb img{max-width:100%;display:block;margin:auto}
+</style></head><body><main id="app"></main>
+<script>
+const $=s=>document.querySelector(s),g=id=>$('#'+id).value,uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7),now=()=>new Date().toISOString();
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let db=JSON.parse(localStorage.getItem('tradelog')||'null')||{accounts:[],trades:[],settings:{kurs:16000,view:'IDR'}};
+const save=()=>localStorage.setItem('tradelog',JSON.stringify(db)),acc=id=>db.accounts.find(a=>a.id==id);
+const mig=()=>db.accounts.forEach(a=>{if(!a.flows)a.flows=a.start?[{id:uid(),at:a.createdAt||'2000-01-01T00:00:00.000Z',amt:a.start,cur:a.cur,note:'Modal awal'}]:[]});mig();
+const idb=new Promise((res,rej)=>{const q=indexedDB.open('tradelog-img',1);q.onupgradeneeded=()=>q.result.createObjectStore('i');q.onsuccess=()=>res(q.result);q.onerror=rej});
+const tx=async(m,f)=>{const d=await idb;return new Promise((res,rej)=>{const t=d.transaction('i',m),r=f(t.objectStore('i'));t.oncomplete=()=>res(r.result);t.onerror=rej})};
+const imgPut=(id,b)=>tx('readwrite',s=>s.put(b,id)),imgGet=id=>tx('readonly',s=>s.get(id)),imgDel=id=>tx('readwrite',s=>s.delete(id));
+const comp=f=>new Promise((res,rej)=>{const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{const k=Math.min(1,1280/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);URL.revokeObjectURL(u);c.toBlob(res,'image/jpeg',.75)};i.onerror=rej;i.src=u});
+const fmt=(v,c)=>new Intl.NumberFormat(c=='USD'?'en-US':'id-ID',{style:'currency',currency:c,maximumFractionDigits:c=='USD'?2:0}).format(v);
+const sh=(v,c)=>{const a=Math.abs(v),s=v<0?'-':'';if(c=='USD')return s+'$'+(a>=1e6?(a/1e6).toFixed(1)+'M':a>=1e3?(a/1e3).toFixed(1)+'K':a.toFixed(0));return s+'Rp '+(a>=1e9?(a/1e9).toFixed(1)+' M':a>=1e6?(a/1e6).toFixed(1)+' jt':a>=1e3?Math.round(a/1e3)+' rb':Math.round(a))};
+const cv=(v,f,t)=>f==t?v:f=='USD'?v*db.settings.kurs:v/db.settings.kurs;
+function mi(el,c){let v=el.value.replace(c=='USD'?/[^0-9.\-]/g:/[^0-9\-]/g,'');const ng=v.startsWith('-');v=v.replace(/-/g,'');let[a,b]=v.split('.');a=a.replace(/\B(?=(\d{3})+(?!\d))/g,c=='USD'?',':'.');el.value=(ng?'-':'')+a+(b!==undefined&&c=='USD'?'.'+b.slice(0,2):'')}
+const pm=(s,c)=>parseFloat(String(s||'').replace(c=='USD'?/,/g:/\./g,''));
+const loc=d=>{const x=new Date(d||Date.now());x.setMinutes(x.getMinutes()-x.getTimezoneOffset());return x.toISOString().slice(0,16)};
+const dur=ms=>{const m=Math.floor(ms/6e4);return m>=1440?Math.floor(m/1440)+' hari '+Math.floor(m%1440/60)+' jam':m>=60?Math.floor(m/60)+' jam '+m%60+' menit':m+' menit'};
+const rr=t=>{const r=t.dir=='buy'?t.entry-t.sl:t.sl-t.entry;return r>0&&t.exit?(t.dir=='buy'?t.exit-t.entry:t.entry-t.exit)/r:null};
+const EM=['Tenang','Yakin','Ragu','FOMO','Takut','Serakah','Marah'],opt=(a,s)=>a.map(x=>`<option ${x==s?'selected':''}>${x}</option>`).join('');
+let V='dash',F={acc:'all',days:0},PI=[],HQ='';
+const M=h=>{let o=$('#ov');if(!o){o=document.createElement('div');o.id='ov';o.className='ov';document.body.append(o)}o.innerHTML='<div>'+h+'</div>';loadImgs()};
+const X=()=>$('#ov')?.remove();
+async function loadImgs(){for(const im of document.querySelectorAll('img[data-i]:not([src])')){const b=await imgGet(im.dataset.i);if(b)im.src=URL.createObjectURL(b)}}
+function lb(s){const d=document.createElement('div');d.id='lb';d.innerHTML=`<img src="${s}">`;d.onclick=()=>d.remove();document.body.append(d)}
+const thumbs=t=>t.imgs.length?`<div class=th>${t.imgs.slice(0,3).map(i=>`<img data-i=${i.id} onclick="event.stopPropagation();lb(this.src)">`).join('')}</div>`:'';
+const k=(l,v,c='')=>`<div class=c><div class=m>${l}</div><b class="${c}">${v}</b></div>`;
+const line=(p,c)=>{if(p.length<2)return'<p class=m>Belum cukup data. Tutup beberapa trade dulu.</p>';const mn=Math.min(...p),mx=Math.max(...p),r=mx-mn||1,x=i=>10+i*320/(p.length-1),y=v=>140-(v-mn)/r*120;return`<svg viewBox="0 0 340 160" width="100%"><path d="${p.map((v,i)=>(i?'L':'M')+x(i)+' '+y(v)).join('')}" fill="none" stroke="#e8b84a" stroke-width="2"/><text x="4" y="12" fill="#8fa196" font-size="10">${sh(mx,c)}</text><text x="4" y="156" fill="#8fa196" font-size="10">${sh(mn,c)}</text></svg>`};
+const bars=a=>{if(!a.length)return'<p class=m>Belum ada data.</p>';const m=Math.max(...a.map(Math.abs))||1,w=320/a.length;return`<svg viewBox="0 0 340 160" width="100%"><line x1="10" x2="330" y1="80" y2="80" stroke="#2a382f"/>${a.map((v,i)=>`<rect x="${10+i*w+1}" width="${Math.max(w-2,1)}" y="${v>=0?80-v/m*70:80}" height="${Math.abs(v)/m*70}" fill="${v>=0?'#4ade80':'#f87171'}"/>`).join('')}</svg>`};
+const grp=(L,key,c,w)=>{const m={};L.forEach(t=>{const x=m[t[key]||'-']??={p:0,n:0,w:0};x.p+=t.p;x.n++;x.w+=t.p>0});const e=Object.entries(m);return e.length?e.map(([n,x])=>`<div class=row><span>${esc(n)} <span class=m>(${x.n})</span></span>${w?`<b>${(x.w/x.n*100).toFixed(0)}%</b>`:`<b class="${x.p>=0?'p':'n'}">${sh(x.p,c)}</b>`}</div>`).join(''):'<p class=m>Belum ada data.</p>'};
+function vDash(){
+ const all=F.acc=='all',cur=all?db.settings.view:acc(F.acc).cur,since=F.days?Date.now()-F.days*864e5:0;
+ const L=db.trades.filter(t=>t.status=='closed'&&(all||t.accId==F.acc)&&new Date(t.closedAt)>=since).sort((a,b)=>a.closedAt<b.closedAt?-1:1).map(t=>({...t,p:cv(t.pnl,t.cur,cur)}));
+ const sum=a=>a.reduce((s,t)=>s+t.p,0),AC=all?db.accounts:[acc(F.acc)];
+ const ev=[...AC.flatMap(a=>a.flows.map(f=>({t:f.at,p:cv(f.amt,f.cur,cur),fl:1}))),...db.trades.filter(t=>t.status=='closed'&&(all||t.accId==F.acc)).map(t=>({t:t.closedAt,p:cv(t.pnl,t.cur,cur)}))].sort((a,b)=>a.t<b.t?-1:1);
+ const W=L.filter(t=>t.p>0),Ls=L.filter(t=>t.p<0),tot=sum(L);let eq=0,pk=0,dd=0;const pts=[];
+ ev.forEach(e=>{eq+=e.p;if(e.fl)pk+=e.p;pk=Math.max(pk,eq);if(!since||new Date(e.t)>=since){dd=Math.max(dd,pk-eq);pts.push(eq)}});
+ const gl=Math.abs(sum(Ls)),pf=gl?sum(W)/gl:(W.length?'∞':0),rrs=L.map(rr).filter(x=>x!=null),ex=L.filter(t=>t.exec=='ya').length,n=L.length;
+ return`<div class=g><select onchange="F.acc=this.value;render()"><option value=all>Semua akun</option>${db.accounts.map(a=>`<option value=${a.id} ${F.acc==a.id?'selected':''}>${esc(a.name)} (${a.cur})</option>`).join('')}</select>
+<select onchange="F.days=+this.value;render()">${[[0,'Semua waktu'],[7,'7 hari'],[30,'30 hari']].map(([d,l])=>`<option value=${d} ${F.days==d?'selected':''}>${l}</option>`).join('')}</select></div>
+${all?`<p class=m>Gabungan dikonversi dengan kurs ${fmt(db.settings.kurs,'IDR')} per USD, ditampilkan dalam ${cur}.</p>`:''}
+<div class=g style="margin-top:8px">${k('Total P/L',fmt(tot,cur),tot>=0?'p':'n')}${k('Saldo',fmt(eq,cur))}${k('Jumlah trade',n)}${k('Win rate',n?(W.length/n*100).toFixed(0)+'%':'-')}
+${k('Rata-rata profit',fmt(W.length?sum(W)/W.length:0,cur),'p')}${k('Rata-rata loss',fmt(Ls.length?sum(Ls)/Ls.length:0,cur),'n')}${k('Profit factor',typeof pf=='number'?pf.toFixed(2):pf)}${k('RR rata-rata',rrs.length?(rrs.reduce((a,b)=>a+b,0)/rrs.length).toFixed(2):'-')}
+${k('Terbaik',n?fmt(Math.max(...L.map(t=>t.p)),cur):'-','p')}${k('Terburuk',n?fmt(Math.min(...L.map(t=>t.p)),cur):'-','n')}${k('Max drawdown',fmt(dd,cur)+(pk?` (${(dd/pk*100).toFixed(1)}%)`:''),'n')}${k('Sesuai rencana',n?(ex/n*100).toFixed(0)+'%':'-')}</div>
+<div class=c style="margin-top:10px"><b>Equity curve</b>${line(pts,cur)}</div><div class=c><b>P/L per trade</b>${bars(L.map(t=>t.p))}</div>
+<div class=c><b>P/L per pair</b>${grp(L,'pair',cur)}</div><div class=c><b>P/L per strategi</b>${grp(L,'strategy',cur)}</div><div class=c><b>Win rate per emosi saat entry</b>${grp(L,'emotion',cur,1)}</div>`}
+function vOpen(){const L=db.trades.filter(t=>t.status=='open'),rk={};L.forEach(t=>rk[t.cur]=(rk[t.cur]||0)+(t.risk||0));
+ return`<h3>Posisi Terbuka</h3>`+(L.length?`<p class=m>Total risiko: ${Object.entries(rk).map(([c,v])=>fmt(v,c)).join(' + ')}</p>`+L.map(t=>`<div class=c><b>${esc(t.pair)}</b> <span class="${t.dir=='buy'?'p':'n'}">${t.dir.toUpperCase()}</span> <span class=m>${esc(acc(t.accId)?.name)} · berjalan ${dur(Date.now()-new Date(t.openedAt))}</span><div class=m>Entry ${t.entry} · SL ${t.sl} · TP ${t.tp} · Lot ${t.lot}</div>${thumbs(t)}<div class=btns><button onclick="closeForm('${t.id}')">Tutup Posisi</button><button class=s onclick="openForm('${t.id}')">Edit</button><button class=d onclick="del('${t.id}')">Hapus</button></div></div>`).join(''):'<div class=c>Belum ada posisi terbuka. Tekan "+ Open Posisi" saat kamu masuk pasar.</div>')}
+const hl=()=>{const L=db.trades.filter(t=>t.status=='closed'&&((t.pair||'')+(t.strategy||'')+(t.closeReason||'')).toLowerCase().includes(HQ.toLowerCase())).sort((a,b)=>a.closedAt<b.closedAt?1:-1);
+ return L.length?L.map(t=>`<div class=c onclick="show('${t.id}')"><b>${esc(t.pair)}</b> <span class="${t.dir=='buy'?'p':'n'}">${t.dir.toUpperCase()}</span> <b class="${t.pnl>=0?'p':'n'}" style="float:right">${fmt(t.pnl,t.cur)}</b><div class=m>${new Date(t.closedAt).toLocaleDateString('id-ID')} · ${esc(t.strategy)||'-'} · ${esc(t.closeReason)}</div>${thumbs(t)}</div>`).join(''):'<div class=c>Belum ada trade yang ditutup.</div>'};
+const vHist=()=>`<h3>Riwayat Evaluasi</h3><input placeholder="Cari pair atau strategi" value="${esc(HQ)}" oninput="HQ=this.value;$('#hl').innerHTML=hl();loadImgs()"><div id=hl style="margin-top:8px">${hl()}</div>`;
+const vSet=()=>`<h3>Pengaturan</h3><div class=c><b>Akun</b>${db.accounts.map(a=>`<div class=row style="align-items:center"><span>${esc(a.name)} (${a.cur})<div class=m>Modal bersih ${fmt(a.flows.reduce((s,f)=>s+cv(f.amt,f.cur,a.cur),0),a.cur)}</div></span><span class=btns style="margin:0"><button class=s onclick="accEdit('${a.id}')">Edit</button><button class=s onclick="flowForm('${a.id}')">Modal</button></span></div>`).join('')}<div class=btns><button onclick="accForm()">+ Tambah akun</button></div></div>
+<div class=c><b>Kurs & tampilan gabungan</b><label>Kurs USD ke IDR (hanya untuk tampilan gabungan)</label><input type=number value="${db.settings.kurs}" onchange="db.settings.kurs=+this.value||16000;save()"><label>Mata uang tampilan gabungan</label><select onchange="db.settings.view=this.value;save()">${opt(['IDR','USD'],db.settings.view)}</select></div>
+<div class=c><b>Backup</b><p class=m>Data tersimpan di browser perangkat ini. Ekspor backup secara rutin.</p><div class=btns><button onclick="exp()">Ekspor backup</button><button class=s onclick="$('#fi').click()">Impor backup</button></div><input id=fi type=file accept=".json" hidden onchange="imp(this.files[0])"></div>`;
+function render(){if(!db.accounts.length)return accForm(1);const o=db.trades.filter(t=>t.status=='open').length;
+ $('#app').innerHTML={dash:vDash,open:vOpen,hist:vHist,set:vSet}[V]()+`<button class=fab onclick="openForm()">+ Open Posisi</button><nav>${[['dash','Dashboard'],['open','Posisi'+(o?` (${o})`:'')],['hist','Riwayat'],['set','Pengaturan']].map(([i,l])=>`<a class="${V==i?'on':''}" onclick="V='${i}';render()">${l}</a>`).join('')}</nav>`;loadImgs()}
+function accForm(first){M(`<h3>${first?'Buat akun pertama':'Tambah akun'}</h3><label>Nama akun</label><input id=an placeholder="Contoh: Akun Real"><label>Mata uang (bisa diubah kapan saja di Pengaturan)</label><select id=ac><option>IDR</option><option>USD</option></select><label>Modal awal (setoran pertama)</label><input id=as inputmode=decimal oninput="mi(this,g('ac'))" placeholder="0"><div class=btns><button onclick="saveAcc()">Simpan akun</button>${first?'':'<button class=s onclick="X()">Batal</button>'}</div>`)}
+function saveAcc(){const n=g('an').trim(),c=g('ac');if(!n)return alert('Isi nama akun.');const v=pm(g('as'),c)||0;db.accounts.push({id:uid(),name:n,cur:c,start:0,createdAt:now(),flows:v?[{id:uid(),at:now(),amt:v,cur:c,note:'Modal awal'}]:[]});save();X();render()}
+function accEdit(id){const a=acc(id);M(`<h3>Edit akun</h3><label>Nama akun</label><input id=an value="${esc(a.name)}"><label>Mata uang</label><select id=ac>${opt(['IDR','USD'],a.cur)}</select><p class=m>Trade dan setoran lama tetap tersimpan dalam mata uang aslinya. Saat dilihat, nilainya dikonversi dengan kurs di Pengaturan.</p><div class=btns><button onclick="saveAccEdit('${id}')">Simpan</button><button class=s onclick="X()">Batal</button></div>`)}
+function saveAccEdit(id){const a=acc(id),n=g('an').trim();if(!n)return alert('Isi nama akun.');a.name=n;a.cur=g('ac');save();X();render()}
+function flowForm(id){const a=acc(id);M(`<h3>Modal ${esc(a.name)}</h3><div class=c>${a.flows.length?a.flows.slice().sort((x,y)=>x.at<y.at?1:-1).map(f=>`<div class=row><span>${new Date(f.at).toLocaleDateString('id-ID')} · ${esc(f.note)||(f.amt>0?'Setoran':'Penarikan')}</span><span><b class="${f.amt>0?'p':'n'}">${fmt(f.amt,f.cur)}</b> <a onclick="delFlow('${id}','${f.id}')" style="color:var(--r)">hapus</a></span></div>`).join(''):'<p class=m>Belum ada setoran.</p>'}</div>
+<label>Jenis</label><select id=fj><option>Setoran</option><option>Penarikan</option></select><label>Jumlah (${a.cur})</label><input id=fa2 inputmode=decimal oninput="mi(this,'${a.cur}')"><label>Tanggal</label><input id=fd2 type=datetime-local value="${loc()}"><label>Catatan (opsional)</label><input id=fn2><div class=btns><button onclick="addFlow('${id}')">Simpan</button><button class=s onclick="X()">Tutup</button></div>`)}
+function addFlow(id){const a=acc(id);let v=pm(g('fa2'),a.cur);if(!(v>0))return alert('Isi jumlah dengan angka positif.');if(g('fj')=='Penarikan')v=-v;a.flows.push({id:uid(),at:new Date(g('fd2')).toISOString(),amt:v,cur:a.cur,note:g('fn2').trim()});save();flowForm(id);render()}
+function delFlow(id,fid){if(!confirm('Hapus catatan modal ini?'))return;const a=acc(id);a.flows=a.flows.filter(f=>f.id!=fid);save();flowForm(id);render()}
+const imgBox=(ls)=>`<label>Screenshot setup (maks. 5)</label><select id=il>${opt(ls)}</select><input type=file accept="image/*" multiple onchange="addImgs(this)" style="margin-top:6px"><div id=ths class=th>${PI.map(thm).join('')}</div>`;
+const thm=i=>`<span style="position:relative"><img data-i=${i.id} onclick="lb(this.src)"><b onclick="rmImg('${i.id}')" style="position:absolute;top:-4px;right:-4px;background:#7f1d1d;border-radius:99px;width:20px;text-align:center">×</b><div class=m style="width:64px;font-size:10px">${esc(i.label)}</div></span>`;
+async function addImgs(el){for(const f of el.files){if(PI.length>=5){alert('Maksimal 5 gambar.');break}if(!/^image\/(jpe?g|png|webp)/.test(f.type)||f.size>1e7){alert('Hanya jpg/png/webp di bawah 10 MB.');continue}const id=uid();await imgPut(id,await comp(f));PI.push({id,label:g('il')})}$('#ths').innerHTML=PI.map(thm).join('');loadImgs();el.value=''}
+const rmImg=id=>{PI=PI.filter(i=>i.id!=id);$('#ths').innerHTML=PI.map(thm).join('');loadImgs()};
+function openForm(id){const t=id?db.trades.find(x=>x.id==id):null;PI=t?[...t.imgs]:[];const cu=()=>acc(g('fa')).cur;window.cu=cu;
+ M(`<h3>${t?'Edit posisi':'Open posisi'}</h3><label>Akun</label><select id=fa ${t?'disabled':''}>${db.accounts.map(a=>`<option value=${a.id} ${t&&t.accId==a.id?'selected':''}>${esc(a.name)} (${a.cur})</option>`).join('')}</select>
+<div class=g><div><label>Pair</label><input id=fp value="${esc(t?.pair)}" placeholder="XAUUSD"></div><div><label>Arah</label><select id=fd><option value=buy ${t?.dir=='buy'?'selected':''}>Buy</option><option value=sell ${t?.dir=='sell'?'selected':''}>Sell</option></select></div>
+<div><label>Entry</label><input id=fe type=number step=any value="${t?.entry??''}"></div><div><label>Lot</label><input id=fl type=number step=any value="${t?.lot??''}"></div>
+<div><label>Stop loss</label><input id=fs type=number step=any value="${t?.sl??''}"></div><div><label>Take profit</label><input id=ft type=number step=any value="${t?.tp??''}"></div></div>
+<label>Waktu entry</label><input id=fo type=datetime-local value="${loc(t?.openedAt)}"><label>Risiko jika SL kena (opsional)</label><input id=fr inputmode=decimal oninput="mi(this,cu())" value="${t?.risk?t.risk:''}">
+<div class=g><div><label>Strategi / tag</label><input id=fy value="${esc(t?.strategy)}"></div><div><label>Emosi saat entry</label><select id=fm>${opt(EM,t?.emotion)}</select></div></div>
+<label>Alasan entry</label><textarea id=fz rows=2>${esc(t?.reason)}</textarea><label>Rencana trade</label><textarea id=fn rows=2>${esc(t?.plan)}</textarea>${imgBox(['Sebelum entry','Saat entry'])}
+<div class=btns><button onclick="saveOpen('${id||''}')">Simpan posisi</button><button class=s onclick="X()">Batal</button></div>`)}
+function saveOpen(id){const a=acc(g('fa')),n=x=>parseFloat(g(x)),v={pair:g('fp').trim().toUpperCase(),dir:g('fd'),entry:n('fe'),sl:n('fs'),tp:n('ft'),lot:n('fl')};
+ if(!v.pair||[v.entry,v.sl,v.tp,v.lot].some(x=>!(x>0)))return alert('Isi pair, entry, SL, TP, dan lot dengan angka positif.');
+ const b=v.dir=='buy';if(b?!(v.sl<v.entry&&v.tp>v.entry):!(v.sl>v.entry&&v.tp<v.entry))return alert(b?'Buy: SL harus di bawah entry dan TP di atas entry.':'Sell: SL harus di atas entry dan TP di bawah entry.');
+ const o={...v,openedAt:new Date(g('fo')).toISOString(),risk:pm(g('fr'),a.cur)||0,strategy:g('fy').trim(),emotion:g('fm'),reason:g('fz'),plan:g('fn'),imgs:PI};
+ if(id){const t=db.trades.find(x=>x.id==id);if(t.sl!=o.sl||t.tp!=o.tp)t.history.push({at:now(),sl:t.sl,tp:t.tp});Object.assign(t,o,{updatedAt:now()})}
+ else db.trades.unshift({id:uid(),status:'open',accId:a.id,cur:a.cur,createdAt:now(),updatedAt:now(),history:[],...o});save();X();V='open';render()}
+function closeForm(id){const t=db.trades.find(x=>x.id==id);PI=[...t.imgs];window.cu=()=>t.cur;
+ M(`<h3>${t.status=='open'?'Tutup posisi':'Edit evaluasi'}</h3><div class=c><b>${esc(t.pair)}</b> ${t.dir.toUpperCase()} · Entry ${t.entry} · SL ${t.sl} · TP ${t.tp} · Lot ${t.lot}<div class=m>Dibuka ${new Date(t.openedAt).toLocaleString('id-ID')}</div></div>
+<label>Waktu close</label><input id=fc type=datetime-local value="${loc(t.closedAt)}"><div class=g><div><label>Harga exit</label><input id=fx type=number step=any value="${t.exit??''}"></div>
+<div><label>Hasil P/L (${t.cur})</label><input id=fp inputmode=decimal oninput="mi(this,cu())" value="${t.pnl!=null?new Intl.NumberFormat(t.cur=='USD'?'en-US':'id-ID',{maximumFractionDigits:2}).format(t.pnl):''}"></div></div>
+<label>Alasan close</label><select id=fr>${opt(['Kena TP','Kena SL','Break even','Tutup manual','Trailing stop'],t.closeReason)}</select>
+<div class=g><div><label>Emosi saat exit</label><select id=fm>${opt(EM,t.exitEmotion)}</select></div><div><label>Sesuai rencana?</label><select id=fe>${opt(['ya','sebagian','tidak'],t.exec)}</select></div></div>
+<label>Evaluasi / pelajaran</label><textarea id=fv rows=3>${esc(t.eval)}</textarea>${imgBox(['Setelah exit','Saat entry','Sebelum entry'])}
+<div class=btns><button onclick="saveClose('${id}')">Simpan & tutup</button><button class=s onclick="X()">Batal</button></div>`)}
+function saveClose(id){const t=db.trades.find(x=>x.id==id),ex=parseFloat(g('fx')),p=pm(g('fp'),t.cur),c=new Date(g('fc'));
+ if(!(ex>0))return alert('Isi harga exit dengan angka positif.');if(isNaN(p))return alert('Isi hasil P/L (boleh negatif).');if(c<new Date(t.openedAt))return alert('Waktu close tidak boleh lebih awal dari waktu open.');
+ Object.assign(t,{status:'closed',closedAt:c.toISOString(),exit:ex,pnl:p,closeReason:g('fr'),exitEmotion:g('fm'),exec:g('fe'),eval:g('fv'),imgs:PI,updatedAt:now()});save();X();V='hist';render();alert('Trade berhasil ditutup dan masuk ke Riwayat Evaluasi.')}
+function show(id){const t=db.trades.find(x=>x.id==id),r=rr(t);
+ M(`<h3>${esc(t.pair)} ${t.dir.toUpperCase()} <span class="${t.pnl>=0?'p':'n'}">${fmt(t.pnl,t.cur)}</span></h3><div class=c>
+<div class=row><span>Entry → Exit</span><b>${t.entry} → ${t.exit}</b></div><div class=row><span>SL / TP</span><b>${t.sl} / ${t.tp}</b></div><div class=row><span>Lot</span><b>${t.lot}</b></div>
+<div class=row><span>Durasi</span><b>${dur(new Date(t.closedAt)-new Date(t.openedAt))}</b></div><div class=row><span>RR aktual</span><b>${r!=null?r.toFixed(2):'-'}</b></div><div class=row><span>Strategi</span><b>${esc(t.strategy)||'-'}</b></div>
+<div class=row><span>Emosi entry → exit</span><b>${esc(t.emotion)} → ${esc(t.exitEmotion)}</b></div><div class=row><span>Sesuai rencana</span><b>${esc(t.exec)}</b></div><div class=row><span>Alasan close</span><b>${esc(t.closeReason)}</b></div></div>
+<div class=c><b>Alasan entry</b><p>${esc(t.reason)||'-'}</p><b>Rencana</b><p>${esc(t.plan)||'-'}</p><b>Evaluasi</b><p>${esc(t.eval)||'-'}</p></div>
+${t.history.length?`<div class=c><b>Riwayat geser SL/TP</b>${t.history.map(h=>`<div class=m>${new Date(h.at).toLocaleString('id-ID')}: SL ${h.sl}, TP ${h.tp}</div>`).join('')}</div>`:''}
+<div class=th>${t.imgs.map(i=>`<span><img data-i=${i.id} onclick="lb(this.src)" style="width:96px;height:96px"><div class=m>${esc(i.label)}</div></span>`).join('')}</div>
+<div class=btns><button onclick="closeForm('${id}')">Edit evaluasi</button><button class=d onclick="del('${id}',1)">Hapus</button><button class=s onclick="X()">Tutup</button></div>`)}
+async function del(id,c){if(!confirm('Hapus trade ini beserta screenshot-nya?'))return;const t=db.trades.find(x=>x.id==id);for(const i of t.imgs)await imgDel(i.id);db.trades=db.trades.filter(x=>x.id!=id);save();if(c)X();render()}
+async function exp(){const wi=confirm('Sertakan screenshot di backup? (file lebih besar)'),d={format:'tradelog-journal',version:4,exportedAt:now(),settings:db.settings,accounts:db.accounts,trades:db.trades};
+ if(wi){d.images={};for(const t of db.trades)for(const i of t.imgs){const b=await imgGet(i.id);if(b)d.images[i.id]=await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)})}}
+ const o=db.trades.filter(t=>t.status=='open').length,a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(d)],{type:'application/json'}));a.download='tradelog-cadangan-'+now().slice(0,10)+'.json';a.click();alert(`${o} posisi terbuka, ${db.trades.length-o} trade closed diekspor.`)}
+function imp(f){if(!f)return;const r=new FileReader();r.onload=async()=>{try{const d=JSON.parse(r.result);if(d.format!='tradelog-journal'||!Array.isArray(d.trades))throw 0;
+ let ac=d.accounts||[];if(!ac.length&&d.trades.length)ac=[{id:'acc0',name:'Akun Utama',cur:'IDR',start:0}];
+ const ts=d.trades.map(t=>({status:'closed',cur:'IDR',accId:ac[0]?.id,imgs:[],history:[],...t,id:t.id||uid()}));
+ const mg=confirm('OK = gabungkan dengan data yang ada\nBatal = pilih opsi timpa');if(!mg&&!confirm('Timpa SEMUA data saat ini dengan isi backup?'))return;
+ if(!mg)db={accounts:[],trades:[],settings:{...db.settings,...(d.settings||{})}};
+ ac.forEach(a=>{if(!acc(a.id))db.accounts.push(a)});let add=0,sk=0;ts.forEach(t=>{if(db.trades.some(x=>x.id==t.id))sk++;else{db.trades.push(t);add++}});
+ mig();for(const[id,u]of Object.entries(d.images||{}))await imgPut(id,await(await fetch(u)).blob());save();render();alert(`${add} trade ditambahkan, ${sk} dilewati.`)}catch(e){alert('File backup tidak valid. Pilih file .json hasil ekspor TradeLog.')}};r.readAsText(f)}
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');render();
+</script></body></html>
